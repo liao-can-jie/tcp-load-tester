@@ -10,13 +10,12 @@ public final class LoadTestClientBootstrap {
 
     private final EventLoopGroup eventLoopGroup = new NioEventLoopGroup();
 
-    public Bootstrap create(DeviceChannelInitializer initializer) {
+    public Bootstrap create() {
         return new Bootstrap()
                 .group(eventLoopGroup)
                 .channel(NioSocketChannel.class)
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000)
-                .option(ChannelOption.SO_KEEPALIVE, true)
-                .handler(initializer);
+                .option(ChannelOption.SO_KEEPALIVE, true);
     }
 
     public EventLoopGroup eventLoopGroup() {

@@ -2,6 +2,7 @@ com\example\tcploadtester\matcher\AckMessageMatcher.class
 com\example\tcploadtester\netty\DeviceMessageHandler.class
 com\example\tcploadtester\scheduler\ReportScheduler.class
 com\example\tcploadtester\config\LoadTestConfig.class
+com\example\tcploadtester\device\DeviceSession$PendingExchange.class
 com\example\tcploadtester\netty\DeviceChannelInitializer.class
 com\example\tcploadtester\device\DeviceSession.class
 com\example\tcploadtester\netty\ReconnectManager.class
