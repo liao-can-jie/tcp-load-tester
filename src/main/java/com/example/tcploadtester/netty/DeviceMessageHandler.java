@@ -9,13 +9,17 @@ import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
-//import io.netty.util.internal.ThreadLocalRandom;
+import io.netty.handler.timeout.IdleState;
+import io.netty.handler.timeout.IdleStateEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
 
 public final class DeviceMessageHandler extends SimpleChannelInboundHandler<String> {
+
+    private static final Logger log = LoggerFactory.getLogger(DeviceMessageHandler.class);
 
     private final DeviceSession session;
     private final LoadTestConfig config;
@@ -61,7 +65,7 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
             if (ackMessage.msgType() == 111) {
                 session.setLoggedIn(true);
                 int i = ThreadLocalRandom.current().nextInt(config.minReportIntervalSeconds(), config.maxReportIntervalSeconds() + 1);
-                System.out.println(i);
+                log.debug("devId={} login success, report interval={}s", session.devId(), i);
                 ReportScheduler.start(session, ctx.channel().eventLoop()
                         , i
                         , () -> trySendReport(ctx.channel()));
@@ -70,13 +74,26 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
     }
 
     @Override
+    public void userEventTriggered(ChannelHandlerContext ctx, Object evt) {
+        if (evt instanceof IdleStateEvent) {
+            IdleStateEvent e = (IdleStateEvent) evt;
+            if (e.state() == IdleState.READER_IDLE) {
+                log.warn("devId={} read idle timeout, closing channel", session.devId());
+                ctx.close();
+            }
+        }
+    }
+
+    @Override
     public void channelInactive(ChannelHandlerContext ctx) {
+        log.info("devId={} channel inactive, cleaning up", session.devId());
         cleanupBeforeReconnect();
         ReconnectManager.schedule(session, ctx.channel().eventLoop(), config.reconnectDelayMillis(), this::reconnect);
     }
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        log.warn("devId={} exception caught: {}", session.devId(), cause.getMessage(), cause);
         ctx.close();
     }
 
@@ -86,6 +103,8 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
         session.setAwaitingAck(111, String.valueOf(txnNo));
         channel.writeAndFlush(payload).addListener(future -> {
             if (!future.isSuccess()) {
+                log.warn("devId={} login write failed: {}", session.devId(), future.cause() != null ? future.cause().getMessage() : "unknown");
+                ReportScheduler.stop(session);
                 channel.close();
                 return;
             }
@@ -102,6 +121,8 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
         session.setAwaitingAck(311, String.valueOf(txnNo));
         channel.writeAndFlush(payload).addListener(future -> {
             if (!future.isSuccess()) {
+                log.warn("devId={} report write failed: {}", session.devId(), future.cause() != null ? future.cause().getMessage() : "unknown");
+                ReportScheduler.stop(session);
                 channel.close();
                 return;
             }
@@ -113,14 +134,17 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
         if (session.ackTimeoutTask() != null) {
             session.ackTimeoutTask().cancel(false);
         }
-        session.setAckTimeoutTask(channel.eventLoop().schedule(() -> onAckTimeout(channel, loginStage), config.ackTimeoutSeconds(), TimeUnit.SECONDS));
+        session.setAckTimeoutTask(channel.eventLoop().schedule(() -> onAckTimeout(channel, loginStage), config.ackTimeoutSeconds(), java.util.concurrent.TimeUnit.SECONDS));
     }
 
     private void onAckTimeout(Channel channel, boolean loginStage) {
         session.setAckTimeoutTask(null);
         session.clearAwaitingAck();
         int timeoutCount = session.incrementTimeouts();
+        log.warn("devId={} ack timeout (count={}/{}), loginStage={}", session.devId(), timeoutCount, config.maxConsecutiveTimeouts(), loginStage);
         if (timeoutCount >= config.maxConsecutiveTimeouts()) {
+            log.warn("devId={} max consecutive timeouts reached, closing", session.devId());
+            ReportScheduler.stop(session);
             channel.close();
             return;
         }
@@ -132,7 +156,7 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
     private void reconnect() {
         if (bootstrap != null) {
             Bootstrap reconnectBootstrap = bootstrap.clone();
-            reconnectBootstrap.handler(new DeviceChannelInitializer(new DeviceMessageHandler(session, config, reconnectBootstrap)));
+            reconnectBootstrap.handler(new DeviceChannelInitializer(new DeviceMessageHandler(session, config, reconnectBootstrap), config.ackTimeoutSeconds() * 2));
             reconnectBootstrap.connect(config.host(), config.port());
         }
     }

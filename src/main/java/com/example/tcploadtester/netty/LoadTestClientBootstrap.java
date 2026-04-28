@@ -15,6 +15,7 @@ public final class LoadTestClientBootstrap {
                 .group(eventLoopGroup)
                 .channel(NioSocketChannel.class)
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000)
+                .option(ChannelOption.SO_KEEPALIVE, true)
                 .handler(initializer);
     }
 
