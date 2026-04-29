@@ -1,8 +1,0 @@
-com\example\tcploadtester\device\DeviceIdentityAllocatorTest.class
-com\example\tcploadtester\integration\LoadTestFlowIntegrationTest.class
-com\example\tcploadtester\payload\PayloadBuilderTest.class
-com\example\tcploadtester\integration\LoadTestFlowIntegrationTest$1$1.class
-com\example\tcploadtester\integration\LoadTestFlowIntegrationTest$MessageEvent.class
-com\example\tcploadtester\integration\LoadTestFlowIntegrationTest$1.class
-com\example\tcploadtester\matcher\AckMessageMatcherTest.class
-com\example\tcploadtester\integration\LoadTestFlowIntegrationTest$TestServerHandler.class
