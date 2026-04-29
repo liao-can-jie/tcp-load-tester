@@ -89,7 +89,7 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
-        log.info("devId={} channel inactive, cleaning up", session.devId());
+        log.info("devId={} channel inactive (server closed or reset), cleaning up and scheduling reconnect in {}ms", session.devId(), config.reconnectDelayMillis());
         cleanupBeforeReconnect(ctx.channel());
         ReconnectManager.schedule(session, ctx.channel().eventLoop(), config.reconnectDelayMillis(), this::reconnect);
     }
@@ -110,7 +110,7 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
         log.info("devId={} sending login 110 txnNo={}", session.devId(), txnNo);
         channel.writeAndFlush(payload).addListener(future -> {
             if (!future.isSuccess()) {
-                log.warn("devId={} login write failed: {}", session.devId(),
+                log.warn("devId={} login write failed, closing channel: {}", session.devId(),
                         future.cause() != null ? future.cause().getMessage() : "unknown");
                 channel.close();
                 return;
@@ -139,7 +139,7 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
         }
         long elapsedMillis = System.currentTimeMillis() - current.firstSentAtMillis();
         if (elapsedMillis >= TimeUnit.SECONDS.toMillis(config.loginRetryWindowSeconds())) {
-            log.warn("devId={} login retry window exceeded, closing channel", session.devId());
+            log.warn("devId={} login retry window exceeded ({}s), closing channel", session.devId(), config.loginRetryWindowSeconds());
             channel.close();
             return;
         }
@@ -148,7 +148,7 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
         log.warn("devId={} missing login ack txnNo={}, retry #{}", session.devId(), retry.txnNo(), retry.retryCount());
         channel.writeAndFlush(retry.payload()).addListener(future -> {
             if (!future.isSuccess()) {
-                log.warn("devId={} login retry write failed: {}", session.devId(),
+                log.warn("devId={} login retry write failed, closing channel: {}", session.devId(),
                         future.cause() != null ? future.cause().getMessage() : "unknown");
                 channel.close();
                 return;
@@ -169,7 +169,7 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
             String payload = PayloadBuilder.buildAttributePayload(session.devId(), txnNo);
             channel.writeAndFlush(payload).addListener(future -> {
                 if (!future.isSuccess()) {
-                    log.warn("devId={} report write failed: {}", session.devId(),
+                    log.warn("devId={} report write failed, closing channel: {}", session.devId(),
                             future.cause() != null ? future.cause().getMessage() : "unknown");
                     channel.close();
                 }
