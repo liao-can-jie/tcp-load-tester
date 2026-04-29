@@ -27,7 +27,7 @@ public final class LoadTestApplication {
 
     public static void main(String[] args) {
         LoadTestConfig config = LoadTestConfig.load(args);
-        LoadTestClientBootstrap bootstrapFactory = new LoadTestClientBootstrap();
+        LoadTestClientBootstrap bootstrapFactory = new LoadTestClientBootstrap(config);
         Runtime.getRuntime().addShutdownHook(new Thread(bootstrapFactory::shutdown));
 
         List<DeviceSession> sessions = new ArrayList<>();
@@ -47,11 +47,6 @@ public final class LoadTestApplication {
                     ReconnectManager.schedule(session, eventLoop, config.reconnectDelayMillis(), handler::reconnect);
                 }
             });
-            try {
-                Thread.sleep(5);
-            } catch (InterruptedException e) {
-                log.error("sleep interrupted", e);
-            }
         }
 
         log.info("started {} device sessions", sessions.size());
