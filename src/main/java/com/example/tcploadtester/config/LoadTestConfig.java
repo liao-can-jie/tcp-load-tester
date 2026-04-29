@@ -16,9 +16,7 @@ public record LoadTestConfig(
         long reconnectDelayMillis,
         int loginRetryIntervalSeconds,
         int loginRetryWindowSeconds,
-        int readerIdleSeconds,
-        int eventLoopThreads,
-        int loginDelaySeconds
+        int readerIdleSeconds
 ) {
     public static LoadTestConfig load(String[] args) {
         Properties properties = new Properties();
@@ -41,9 +39,7 @@ public record LoadTestConfig(
                 Long.parseLong(overrides.getOrDefault("reconnectDelayMillis", properties.getProperty("reconnectDelayMillis"))),
                 Integer.parseInt(overrides.getOrDefault("loginRetryIntervalSeconds", properties.getProperty("loginRetryIntervalSeconds"))),
                 Integer.parseInt(overrides.getOrDefault("loginRetryWindowSeconds", properties.getProperty("loginRetryWindowSeconds"))),
-                Integer.parseInt(overrides.getOrDefault("readerIdleSeconds", properties.getProperty("readerIdleSeconds"))),
-                Integer.parseInt(overrides.getOrDefault("eventLoopThreads", properties.getProperty("eventLoopThreads"))),
-                Integer.parseInt(overrides.getOrDefault("loginDelaySeconds", properties.getProperty("loginDelaySeconds")))
+                Integer.parseInt(overrides.getOrDefault("readerIdleSeconds", properties.getProperty("readerIdleSeconds")))
         );
         config.validate();
         return config;
@@ -86,12 +82,6 @@ public record LoadTestConfig(
         }
         if (readerIdleSeconds <= loginRetryWindowSeconds) {
             throw new IllegalArgumentException("readerIdleSeconds must be greater than loginRetryWindowSeconds");
-        }
-        if (eventLoopThreads <= 0) {
-            throw new IllegalArgumentException("eventLoopThreads must be > 0");
-        }
-        if (loginDelaySeconds < 0) {
-            throw new IllegalArgumentException("loginDelaySeconds must be >= 0");
         }
     }
 }
