@@ -230,7 +230,7 @@ class LoadTestFlowIntegrationTest {
     }
 
     private LoadTestConfig testConfig() {
-        return new LoadTestConfig("127.0.0.1", 19090, 1, 1, 1, 100, 1, 3, 5);
+        return new LoadTestConfig("127.0.0.1", 19090, 1, 1, 1, 100, 1, 3, 5, 4);
     }
 
     private String capturedLogs() {

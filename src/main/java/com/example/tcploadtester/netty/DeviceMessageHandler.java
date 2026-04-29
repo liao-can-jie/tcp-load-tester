@@ -2,7 +2,6 @@ package com.example.tcploadtester.netty;
 
 import com.example.tcploadtester.config.LoadTestConfig;
 import com.example.tcploadtester.device.DeviceSession;
-import com.example.tcploadtester.matcher.AckMessageMatcher;
 import com.example.tcploadtester.payload.PayloadBuilder;
 import com.example.tcploadtester.scheduler.ReportScheduler;
 import io.netty.bootstrap.Bootstrap;
@@ -14,7 +13,6 @@ import io.netty.handler.timeout.IdleStateEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
@@ -25,7 +23,6 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
     private final DeviceSession session;
     private final LoadTestConfig config;
     private final Bootstrap bootstrap;
-    private final StringBuilder inboundBuffer = new StringBuilder();
     private long connectionGeneration;
 
     public DeviceMessageHandler(DeviceSession session, LoadTestConfig config, Bootstrap bootstrap) {
@@ -53,27 +50,13 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
         if (session.loggedIn()) {
             return;
         }
-        log.debug("devId={} received: {}", session.devId(), msg);
-        inboundBuffer.append(msg);
-        List<AckMessageMatcher.AckMessage> ackMessages = AckMessageMatcher.extract(inboundBuffer.toString());
-        if (!ackMessages.isEmpty()) {
-            inboundBuffer.setLength(0);
-        }
-        for (AckMessageMatcher.AckMessage ackMessage : ackMessages) {
-            if (ackMessage.msgType() != 111) {
-                continue;
-            }
+        if (msg.contains("\"msgType\":111")) {
             cancelLoginRetryTask();
             session.clearPendingLogin();
             session.setLoggedIn(true);
             ConnectionStats.onLoginSuccess();
             log.debug("devId={} login success", session.devId());
             startPeriodicReport(ctx.channel());
-            return;
-        }
-        if (inboundBuffer.length() > 8192) {
-            log.warn("devId={} inbound buffer overflow ({} chars), clearing", session.devId(), inboundBuffer.length());
-            inboundBuffer.setLength(0);
         }
     }
 
