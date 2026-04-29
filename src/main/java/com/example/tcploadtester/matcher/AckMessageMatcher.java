@@ -7,7 +7,7 @@ import java.util.regex.Pattern;
 
 public final class AckMessageMatcher {
 
-    private static final Pattern ACK_PATTERN = Pattern.compile("\\{\"msgType\":(111|311),.*?\"txnNo\":(\"?\\d{13}\"?)\\}");
+    private static final Pattern ACK_PATTERN = Pattern.compile("\\{\"msgType\":(111|311),.*?\"txnNo\":(\"?\\d{13,15}\"?)\\}");
 
     private AckMessageMatcher() {
     }
