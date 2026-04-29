@@ -4,21 +4,32 @@ import io.netty.channel.Channel;
 
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 public final class DeviceSession {
+
+    public record PendingLogin(
+            String txnNo,
+            String payload,
+            long firstSentAtMillis,
+            int retryCount
+    ) {
+        public PendingLogin nextRetry() {
+            return new PendingLogin(txnNo, payload, firstSentAtMillis, retryCount + 1);
+        }
+    }
 
     private final int deviceIndex;
     private final String devId;
     private final String imsi;
     private final AtomicBoolean loggedIn = new AtomicBoolean(false);
-    private final AtomicInteger consecutiveTimeouts = new AtomicInteger(0);
     private final AtomicReference<Channel> channelRef = new AtomicReference<>();
-    private final AtomicReference<Integer> awaitingAckMsgType = new AtomicReference<>();
-    private final AtomicReference<String> awaitingAckTxnNo = new AtomicReference<>();
+    private final AtomicReference<PendingLogin> pendingLoginRef = new AtomicReference<>();
+    private final AtomicReference<ScheduledFuture<?>> loginRetryTaskRef = new AtomicReference<>();
     private final AtomicReference<ScheduledFuture<?>> reportTaskRef = new AtomicReference<>();
-    private final AtomicReference<ScheduledFuture<?>> ackTimeoutTaskRef = new AtomicReference<>();
+    private final AtomicReference<ScheduledFuture<?>> reconnectTaskRef = new AtomicReference<>();
+    private final AtomicLong connectionGeneration = new AtomicLong(0);
 
     public DeviceSession(int deviceIndex, String devId, String imsi) {
         this.deviceIndex = deviceIndex;
@@ -26,81 +37,30 @@ public final class DeviceSession {
         this.imsi = imsi;
     }
 
-    public int deviceIndex() {
-        return deviceIndex;
-    }
+    public int deviceIndex() { return deviceIndex; }
+    public String devId() { return devId; }
+    public String imsi() { return imsi; }
 
-    public String devId() {
-        return devId;
-    }
+    public boolean loggedIn() { return loggedIn.get(); }
+    public void setLoggedIn(boolean value) { loggedIn.set(value); }
 
-    public String imsi() {
-        return imsi;
-    }
+    public Channel channel() { return channelRef.get(); }
+    public void setChannel(Channel channel) { channelRef.set(channel); }
+    public void clearChannel(Channel channel) { channelRef.compareAndSet(channel, null); }
 
-    public boolean loggedIn() {
-        return loggedIn.get();
-    }
+    public long nextConnectionGeneration() { return connectionGeneration.incrementAndGet(); }
+    public long connectionGeneration() { return connectionGeneration.get(); }
 
-    public void setLoggedIn(boolean value) {
-        loggedIn.set(value);
-    }
+    public PendingLogin pendingLogin() { return pendingLoginRef.get(); }
+    public void setPendingLogin(PendingLogin pendingLogin) { pendingLoginRef.set(pendingLogin); }
+    public void clearPendingLogin() { pendingLoginRef.set(null); }
 
-    public int consecutiveTimeouts() {
-        return consecutiveTimeouts.get();
-    }
+    public ScheduledFuture<?> loginRetryTask() { return loginRetryTaskRef.get(); }
+    public void setLoginRetryTask(ScheduledFuture<?> future) { loginRetryTaskRef.set(future); }
 
-    public int incrementTimeouts() {
-        return consecutiveTimeouts.incrementAndGet();
-    }
+    public ScheduledFuture<?> reportTask() { return reportTaskRef.get(); }
+    public void setReportTask(ScheduledFuture<?> future) { reportTaskRef.set(future); }
 
-    public void resetTimeouts() {
-        consecutiveTimeouts.set(0);
-    }
-
-    public Channel channel() {
-        return channelRef.get();
-    }
-
-    public void setChannel(Channel channel) {
-        channelRef.set(channel);
-    }
-
-    public Integer awaitingAckMsgType() {
-        return awaitingAckMsgType.get();
-    }
-
-    public String awaitingAckTxnNo() {
-        return awaitingAckTxnNo.get();
-    }
-
-    public boolean isAwaitingAck() {
-        return awaitingAckMsgType.get() != null && awaitingAckTxnNo.get() != null;
-    }
-
-    public void setAwaitingAck(int msgType, String txnNo) {
-        awaitingAckMsgType.set(msgType);
-        awaitingAckTxnNo.set(txnNo);
-    }
-
-    public void clearAwaitingAck() {
-        awaitingAckMsgType.set(null);
-        awaitingAckTxnNo.set(null);
-    }
-
-    public ScheduledFuture<?> reportTask() {
-        return reportTaskRef.get();
-    }
-
-    public void setReportTask(ScheduledFuture<?> future) {
-        reportTaskRef.set(future);
-    }
-
-    public ScheduledFuture<?> ackTimeoutTask() {
-        return ackTimeoutTaskRef.get();
-    }
-
-    public void setAckTimeoutTask(ScheduledFuture<?> future) {
-        ackTimeoutTaskRef.set(future);
-    }
+    public ScheduledFuture<?> reconnectTask() { return reconnectTaskRef.get(); }
+    public void setReconnectTask(ScheduledFuture<?> future) { reconnectTaskRef.set(future); }
 }

@@ -14,8 +14,9 @@ public record LoadTestConfig(
         int minReportIntervalSeconds,
         int maxReportIntervalSeconds,
         long reconnectDelayMillis,
-        int ackTimeoutSeconds,
-        int maxConsecutiveTimeouts
+        int loginRetryIntervalSeconds,
+        int loginRetryWindowSeconds,
+        int readerIdleSeconds
 ) {
     public static LoadTestConfig load(String[] args) {
         Properties properties = new Properties();
@@ -36,8 +37,9 @@ public record LoadTestConfig(
                 Integer.parseInt(overrides.getOrDefault("minReportIntervalSeconds", properties.getProperty("minReportIntervalSeconds"))),
                 Integer.parseInt(overrides.getOrDefault("maxReportIntervalSeconds", properties.getProperty("maxReportIntervalSeconds"))),
                 Long.parseLong(overrides.getOrDefault("reconnectDelayMillis", properties.getProperty("reconnectDelayMillis"))),
-                Integer.parseInt(overrides.getOrDefault("ackTimeoutSeconds", properties.getProperty("ackTimeoutSeconds"))),
-                Integer.parseInt(overrides.getOrDefault("maxConsecutiveTimeouts", properties.getProperty("maxConsecutiveTimeouts")))
+                Integer.parseInt(overrides.getOrDefault("loginRetryIntervalSeconds", properties.getProperty("loginRetryIntervalSeconds"))),
+                Integer.parseInt(overrides.getOrDefault("loginRetryWindowSeconds", properties.getProperty("loginRetryWindowSeconds"))),
+                Integer.parseInt(overrides.getOrDefault("readerIdleSeconds", properties.getProperty("readerIdleSeconds")))
         );
         config.validate();
         return config;
@@ -66,20 +68,20 @@ public record LoadTestConfig(
         if (deviceCount <= 0 || deviceCount > 100000) {
             throw new IllegalArgumentException("deviceCount must be between 1 and 100000");
         }
-     /*   if (reportIntervalSeconds <= 0) {
-            throw new IllegalArgumentException("reportIntervalSeconds must be > 0");
-        }*/
         if (minReportIntervalSeconds <= 0 || minReportIntervalSeconds > maxReportIntervalSeconds) {
             throw new IllegalArgumentException("minReportIntervalSeconds must be between 1 and maxReportIntervalSeconds");
         }
         if (reconnectDelayMillis < 0) {
             throw new IllegalArgumentException("reconnectDelayMillis must be >= 0");
         }
-        if (ackTimeoutSeconds <= 0) {
-            throw new IllegalArgumentException("ackTimeoutSeconds must be > 0");
+        if (loginRetryIntervalSeconds <= 0) {
+            throw new IllegalArgumentException("loginRetryIntervalSeconds must be > 0");
         }
-        if (maxConsecutiveTimeouts <= 0) {
-            throw new IllegalArgumentException("maxConsecutiveTimeouts must be > 0");
+        if (loginRetryWindowSeconds < loginRetryIntervalSeconds) {
+            throw new IllegalArgumentException("loginRetryWindowSeconds must be >= loginRetryIntervalSeconds");
+        }
+        if (readerIdleSeconds <= loginRetryWindowSeconds) {
+            throw new IllegalArgumentException("readerIdleSeconds must be greater than loginRetryWindowSeconds");
         }
     }
 }

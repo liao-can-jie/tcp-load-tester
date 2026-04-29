@@ -31,9 +31,9 @@ public final class LoadTestApplication {
             DeviceSession session = new DeviceSession(i, identity.devId(), identity.imsi());
             sessions.add(session);
 
-            Bootstrap bootstrap = bootstrapFactory.create(null);
+            Bootstrap bootstrap = bootstrapFactory.create();
             DeviceMessageHandler handler = new DeviceMessageHandler(session, config, bootstrap);
-            bootstrap.handler(new DeviceChannelInitializer(handler, config.ackTimeoutSeconds() * 2));
+            bootstrap.handler(new DeviceChannelInitializer(handler, config.readerIdleSeconds()));
             bootstrap.connect(config.host(), config.port());
         }
 
