@@ -43,6 +43,7 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
         cancelLoginRetryTask();
         session.clearPendingLogin();
         ReportScheduler.stop(session);
+        log.info("devId={} channel active gen={}, sending login 110", session.devId(), connectionGeneration);
         sendLogin(ctx.channel());
     }
 
@@ -97,6 +98,7 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
                 String.valueOf(txnNo), payload, System.currentTimeMillis(), 0
         );
         session.setPendingLogin(pending);
+        log.info("devId={} sending login 110 txnNo={}", session.devId(), txnNo);
         channel.writeAndFlush(payload).addListener(future -> {
             if (!future.isSuccess()) {
                 log.warn("devId={} login write failed: {}", session.devId(),
@@ -104,6 +106,7 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
                 channel.close();
                 return;
             }
+            log.debug("devId={} login 110 sent, scheduling retry in {}s", session.devId(), config.loginRetryIntervalSeconds());
             scheduleLoginRetry(channel, pending);
         });
     }
@@ -118,9 +121,11 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
         session.setLoginRetryTask(null);
         DeviceSession.PendingLogin current = session.pendingLogin();
         if (current == null || !current.txnNo().equals(scheduled.txnNo())) {
+            log.debug("devId={} login retry skipped: pending cleared or txnNo changed", session.devId());
             return;
         }
         if (!channel.isActive() || connectionGeneration != session.connectionGeneration()) {
+            log.debug("devId={} login retry skipped: channel inactive or generation mismatch", session.devId());
             return;
         }
         long elapsedMillis = System.currentTimeMillis() - current.firstSentAtMillis();
@@ -146,6 +151,7 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
     private void startPeriodicReport(Channel channel) {
         int interval = ThreadLocalRandom.current().nextInt(
                 config.minReportIntervalSeconds(), config.maxReportIntervalSeconds() + 1);
+        log.info("devId={} starting periodic 310 reports every {}s", session.devId(), interval);
         ReportScheduler.start(session, channel.eventLoop(), interval, () -> {
             if (!channel.isActive() || !session.loggedIn()) {
                 return;
@@ -164,6 +170,7 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
 
     private void reconnect() {
         if (bootstrap != null) {
+            log.info("devId={} reconnecting...", session.devId());
             Bootstrap reconnectBootstrap = bootstrap.clone();
             reconnectBootstrap.handler(new DeviceChannelInitializer(
                     new DeviceMessageHandler(session, config, reconnectBootstrap), config.readerIdleSeconds()));
