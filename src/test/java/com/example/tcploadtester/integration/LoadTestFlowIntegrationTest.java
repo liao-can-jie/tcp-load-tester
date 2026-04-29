@@ -49,7 +49,7 @@ class LoadTestFlowIntegrationTest {
     private ChannelFuture serverFuture;
 
     @BeforeEach
-    void setUpLoggingCapture() {
+    void setUp() {
         errBuffer.reset();
         originalErr = System.err;
         System.setErr(new PrintStream(errBuffer, true, StandardCharsets.UTF_8));
@@ -67,78 +67,39 @@ class LoadTestFlowIntegrationTest {
     }
 
     @Test
-    void loginThenReportWithAckResponses() throws Exception {
+    void loginAckThenPeriodicReportWithoutWaiting311() throws Exception {
         CountDownLatch loginLatch = new CountDownLatch(1);
-        CountDownLatch reportLatch = new CountDownLatch(1);
+        CountDownLatch twoReportsLatch = new CountDownLatch(2);
+        AtomicBoolean loginAcked = new AtomicBoolean(false);
         startServer((ctx, event) -> {
-            if (event.msgType() == 110) {
+            if (event.msgType() == 110 && loginAcked.compareAndSet(false, true)) {
                 loginLatch.countDown();
                 ctx.writeAndFlush(loginAck(event.txnNo()));
+                return;
             }
             if (event.msgType() == 310) {
-                reportLatch.countDown();
-                ctx.writeAndFlush(reportAck(event.txnNo()));
+                twoReportsLatch.countDown();
             }
         });
 
         startClient(testConfig());
 
         assertTrue(loginLatch.await(3, TimeUnit.SECONDS));
-        assertTrue(reportLatch.await(3, TimeUnit.SECONDS));
-        assertTrue(receivedMessages.stream().anyMatch(event -> event.msgType() == 110));
-        assertTrue(receivedMessages.stream().anyMatch(event -> event.msgType() == 310));
-    }
+        assertTrue(twoReportsLatch.await(5, TimeUnit.SECONDS));
 
-    @Test
-    void delayedAckStopsRetryImmediately() throws Exception {
-        CountDownLatch firstReportLatch = new CountDownLatch(1);
-        CountDownLatch retryReportLatch = new CountDownLatch(1);
-        AtomicBoolean loginAcked = new AtomicBoolean(false);
-        AtomicReference<String> pendingReportTxnNo = new AtomicReference<>();
-        startServer((ctx, event) -> {
-            if (event.msgType() == 110 && loginAcked.compareAndSet(false, true)) {
-                ctx.writeAndFlush(loginAck(event.txnNo()));
-                return;
-            }
-            if (event.msgType() == 310) {
-                if (pendingReportTxnNo.compareAndSet(null, event.txnNo())) {
-                    firstReportLatch.countDown();
-                    return;
-                }
-                if (event.txnNo().equals(pendingReportTxnNo.get())) {
-                    retryReportLatch.countDown();
-                    ctx.writeAndFlush(reportAck(event.txnNo()));
-                }
-            }
-        });
-
-        startClient(testConfig());
-
-        assertTrue(firstReportLatch.await(4, TimeUnit.SECONDS));
-        assertTrue(retryReportLatch.await(4, TimeUnit.SECONDS));
-        Thread.sleep(1800);
-
-        List<MessageEvent> matchingReports = receivedMessages.stream()
-                .filter(event -> event.msgType() == 310)
-                .filter(event -> event.txnNo().equals(pendingReportTxnNo.get()))
+        List<MessageEvent> reports = receivedMessages.stream()
+                .filter(e -> e.msgType() == 310)
                 .toList();
-
-        assertEquals(2, matchingReports.size());
-        String logs = capturedLogs();
-        assertTrue(logs.contains("missing ack msgType=310 txnNo=" + pendingReportTxnNo.get() + ", retry #1"));
-        assertTrue(!logs.contains("missing ack msgType=310 txnNo=" + pendingReportTxnNo.get() + ", retry #2"));
-        assertTrue(!logs.contains("ack retry window exceeded msgType=310 txnNo=" + pendingReportTxnNo.get()));
+        assertTrue(reports.size() >= 2);
     }
 
     @Test
-    void resendSameLoginUntilReconnectThenSendFreshLogin() throws Exception {
+    void resendSameLoginUntilReconnectThenFreshLogin() throws Exception {
         CountDownLatch secondConnectionLoginLatch = new CountDownLatch(1);
         AtomicReference<String> firstChannelId = new AtomicReference<>();
         AtomicBoolean secondConnectionAcked = new AtomicBoolean(false);
         startServer((ctx, event) -> {
-            if (event.msgType() != 110) {
-                return;
-            }
+            if (event.msgType() != 110) return;
             String channelId = event.channelId();
             if (firstChannelId.compareAndSet(null, channelId)) {
                 return;
@@ -153,61 +114,80 @@ class LoadTestFlowIntegrationTest {
 
         assertTrue(secondConnectionLoginLatch.await(8, TimeUnit.SECONDS));
 
-        List<MessageEvent> firstConnectionLogins = receivedMessages.stream()
-                .filter(event -> event.msgType() == 110)
-                .filter(event -> event.channelId().equals(firstChannelId.get()))
+        List<MessageEvent> firstLogins = receivedMessages.stream()
+                .filter(e -> e.msgType() == 110)
+                .filter(e -> e.channelId().equals(firstChannelId.get()))
                 .toList();
+        assertTrue(firstLogins.size() >= 3);
+        assertEquals(1, firstLogins.stream().map(MessageEvent::txnNo).distinct().count());
 
-        assertTrue(firstConnectionLogins.size() >= 3);
-        assertEquals(1, firstConnectionLogins.stream().map(MessageEvent::txnNo).distinct().count());
-
-        MessageEvent secondConnectionLogin = receivedMessages.stream()
-                .filter(event -> event.msgType() == 110)
-                .filter(event -> !event.channelId().equals(firstChannelId.get()))
-                .findFirst()
-                .orElseThrow();
-
-        assertNotEquals(firstConnectionLogins.get(0).txnNo(), secondConnectionLogin.txnNo());
+        MessageEvent secondLogin = receivedMessages.stream()
+                .filter(e -> e.msgType() == 110)
+                .filter(e -> !e.channelId().equals(firstChannelId.get()))
+                .findFirst().orElseThrow();
+        assertNotEquals(firstLogins.get(0).txnNo(), secondLogin.txnNo());
     }
 
     @Test
-    void resendSameReportUntilReconnectThenLoginOnNewConnection() throws Exception {
-        CountDownLatch firstReportLatch = new CountDownLatch(1);
-        CountDownLatch secondConnectionLoginLatch = new CountDownLatch(1);
-        AtomicReference<String> firstChannelId = new AtomicReference<>();
-        AtomicBoolean firstConnectionLoginAcked = new AtomicBoolean(false);
-        AtomicBoolean secondConnectionLoginAcked = new AtomicBoolean(false);
+    void delayedLoginAckStopsRetryImmediately() throws Exception {
+        CountDownLatch firstLoginLatch = new CountDownLatch(1);
+        CountDownLatch retryLoginLatch = new CountDownLatch(1);
+        AtomicReference<String> pendingTxnNo = new AtomicReference<>();
         startServer((ctx, event) -> {
             if (event.msgType() == 110) {
-                String channelId = event.channelId();
-                if (firstChannelId.compareAndSet(null, channelId) && firstConnectionLoginAcked.compareAndSet(false, true)) {
-                    ctx.writeAndFlush(loginAck(event.txnNo()));
+                if (pendingTxnNo.compareAndSet(null, event.txnNo())) {
+                    firstLoginLatch.countDown();
                     return;
                 }
-                if (!channelId.equals(firstChannelId.get()) && secondConnectionLoginAcked.compareAndSet(false, true)) {
-                    secondConnectionLoginLatch.countDown();
+                if (event.txnNo().equals(pendingTxnNo.get())) {
+                    retryLoginLatch.countDown();
                     ctx.writeAndFlush(loginAck(event.txnNo()));
                 }
-                return;
-            }
-            if (event.msgType() == 310) {
-                firstReportLatch.countDown();
             }
         });
 
         startClient(testConfig());
 
-        assertTrue(firstReportLatch.await(4, TimeUnit.SECONDS));
-        assertTrue(secondConnectionLoginLatch.await(8, TimeUnit.SECONDS));
+        assertTrue(firstLoginLatch.await(3, TimeUnit.SECONDS));
+        assertTrue(retryLoginLatch.await(4, TimeUnit.SECONDS));
+        Thread.sleep(1800);
 
-        List<MessageEvent> firstConnectionReports = receivedMessages.stream()
-                .filter(event -> event.msgType() == 310)
-                .filter(event -> event.channelId().equals(firstChannelId.get()))
-                .toList();
+        String logs = capturedLogs();
+        assertTrue(logs.contains("missing login ack txnNo=" + pendingTxnNo.get() + ", retry #1"));
+        assertTrue(!logs.contains("missing login ack txnNo=" + pendingTxnNo.get() + ", retry #2"));
+        assertTrue(!logs.contains("login retry window exceeded"));
+    }
 
-        assertTrue(firstConnectionReports.size() >= 3);
-        assertEquals(1, firstConnectionReports.stream().map(MessageEvent::txnNo).distinct().count());
-        assertTrue(receivedMessages.stream().anyMatch(event -> event.msgType() == 110 && !event.channelId().equals(firstChannelId.get())));
+    @Test
+    void disconnectTriggersReconnectAndRelogin() throws Exception {
+        CountDownLatch secondLoginLatch = new CountDownLatch(1);
+        AtomicBoolean firstAcked = new AtomicBoolean(false);
+        AtomicBoolean secondAcked = new AtomicBoolean(false);
+        AtomicReference<io.netty.channel.Channel> firstChannel = new AtomicReference<>();
+        startServer((ctx, event) -> {
+            if (event.msgType() == 110) {
+                if (firstAcked.compareAndSet(false, true)) {
+                    firstChannel.set(ctx.channel());
+                    ctx.writeAndFlush(loginAck(event.txnNo()));
+                    return;
+                }
+                if (secondAcked.compareAndSet(false, true)) {
+                    secondLoginLatch.countDown();
+                    ctx.writeAndFlush(loginAck(event.txnNo()));
+                }
+            }
+        });
+
+        startClient(testConfig());
+
+        Thread.sleep(1500);
+        io.netty.channel.Channel ch = firstChannel.get();
+        if (ch != null) {
+            ch.close().sync();
+        }
+
+        assertTrue(secondLoginLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(receivedMessages.stream().filter(e -> e.msgType() == 110).count() >= 2);
     }
 
     private void startServer(TestServerHandler handler) throws InterruptedException {
@@ -269,15 +249,10 @@ class LoadTestFlowIntegrationTest {
         return "{\"msgType\":111,\"devId\":\"TSD000001\",\"txnNo\":" + txnNo + "}";
     }
 
-    private String reportAck(String txnNo) {
-        return "{\"msgType\":311,\"devId\":\"TSD000001\",\"txnNo\":" + txnNo + "}";
-    }
-
     @FunctionalInterface
     private interface TestServerHandler {
         void handle(ChannelHandlerContext ctx, MessageEvent event);
     }
 
-    private record MessageEvent(String channelId, int msgType, String txnNo) {
-    }
+    private record MessageEvent(String channelId, int msgType, String txnNo) {}
 }

@@ -35,6 +35,12 @@ public final class LoadTestApplication {
             DeviceMessageHandler handler = new DeviceMessageHandler(session, config, bootstrap);
             bootstrap.handler(new DeviceChannelInitializer(handler, config.readerIdleSeconds()));
             bootstrap.connect(config.host(), config.port());
+            //睡眠100ms，避免连接过快导致服务器拒绝
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                log.error("sleep interrupted", e);
+            }
         }
 
         log.info("started {} device sessions", sessions.size());

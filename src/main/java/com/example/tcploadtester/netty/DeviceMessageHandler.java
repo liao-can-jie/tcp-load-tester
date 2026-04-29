@@ -21,15 +21,12 @@ import java.util.concurrent.TimeUnit;
 public final class DeviceMessageHandler extends SimpleChannelInboundHandler<String> {
 
     private static final Logger log = LoggerFactory.getLogger(DeviceMessageHandler.class);
-    private static final int LOGIN_MSG_TYPE = 110;
-    private static final int LOGIN_ACK_MSG_TYPE = 111;
-    private static final int REPORT_MSG_TYPE = 310;
-    private static final int REPORT_ACK_MSG_TYPE = 311;
 
     private final DeviceSession session;
     private final LoadTestConfig config;
     private final Bootstrap bootstrap;
     private final StringBuilder inboundBuffer = new StringBuilder();
+    private long connectionGeneration;
 
     public DeviceMessageHandler(DeviceSession session, LoadTestConfig config, Bootstrap bootstrap) {
         this.session = session;
@@ -39,40 +36,44 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
 
     @Override
     public void channelActive(ChannelHandlerContext ctx) {
-        long connectionGeneration = session.nextConnectionGeneration();
+        connectionGeneration = session.nextConnectionGeneration();
         session.setChannel(ctx.channel());
         session.setReconnectTask(null);
         session.setLoggedIn(false);
-        cancelAckRetryTask();
-        session.clearPendingExchange();
-        sendLogin(ctx.channel(), connectionGeneration);
+        cancelLoginRetryTask();
+        session.clearPendingLogin();
+        ReportScheduler.stop(session);
+        log.info("devId={} channel active gen={}, sending login 110", session.devId(), connectionGeneration);
+        sendLogin(ctx.channel());
     }
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, String msg) {
+        log.debug("devId={} received: {}", session.devId(), msg);
         inboundBuffer.append(msg);
         List<AckMessageMatcher.AckMessage> ackMessages = AckMessageMatcher.extract(inboundBuffer.toString());
         if (!ackMessages.isEmpty()) {
             inboundBuffer.setLength(0);
         }
         for (AckMessageMatcher.AckMessage ackMessage : ackMessages) {
-            DeviceSession.PendingExchange pending = session.pendingExchange();
+            DeviceSession.PendingLogin pending = session.pendingLogin();
             if (pending == null) {
+                log.debug("devId={} received ack msgType={} txnNo={} but no pending login", session.devId(), ackMessage.msgType(), ackMessage.txnNo());
                 continue;
             }
-            if (!AckMessageMatcher.matches(ackMessage, pending.expectedAckMsgType(), pending.txnNo())) {
+            if (ackMessage.msgType() != 111 || !AckMessageMatcher.matches(ackMessage, 111, pending.txnNo())) {
+                log.debug("devId={} received ack msgType={} txnNo={} expected msgType=111 txnNo={}", session.devId(), ackMessage.msgType(), ackMessage.txnNo(), pending.txnNo());
                 continue;
             }
-            cancelAckRetryTask();
-            session.clearPendingExchange();
-            if (pending.expectedAckMsgType() == LOGIN_ACK_MSG_TYPE) {
-                session.setLoggedIn(true);
-                int interval = ThreadLocalRandom.current().nextInt(config.minReportIntervalSeconds(), config.maxReportIntervalSeconds() + 1);
-                log.debug("devId={} login success, report interval={}s", session.devId(), interval);
-                ReportScheduler.start(session, ctx.channel().eventLoop(), interval, () -> trySendReport(ctx.channel(), session.connectionGeneration()));
-                continue;
-            }
-            log.debug("devId={} report ack received txnNo={}", session.devId(), pending.txnNo());
+            cancelLoginRetryTask();
+            session.clearPendingLogin();
+            session.setLoggedIn(true);
+            log.info("devId={} login success txnNo={}", session.devId(), pending.txnNo());
+            startPeriodicReport(ctx.channel());
+        }
+        if (inboundBuffer.length() > 8192) {
+            log.warn("devId={} inbound buffer overflow ({} chars), clearing", session.devId(), inboundBuffer.length());
+            inboundBuffer.setLength(0);
         }
     }
 
@@ -97,107 +98,89 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
         ctx.close();
     }
 
-    private void sendLogin(Channel channel, long connectionGeneration) {
+    private void sendLogin(Channel channel) {
         long txnNo = System.currentTimeMillis();
         String payload = PayloadBuilder.buildLoginPayload(session.devId(), session.imsi(), txnNo);
-        writePendingExchange(channel, new DeviceSession.PendingExchange(
-                LOGIN_MSG_TYPE,
-                LOGIN_ACK_MSG_TYPE,
-                String.valueOf(txnNo),
-                payload,
-                System.currentTimeMillis(),
-                0,
-                connectionGeneration
-        ));
-    }
-
-    private void trySendReport(Channel channel, long connectionGeneration) {
-        if (!session.loggedIn() || session.isAwaitingAck()) {
-            return;
-        }
-        long txnNo = System.currentTimeMillis();
-        String payload = PayloadBuilder.buildAttributePayload(session.devId(), txnNo);
-        writePendingExchange(channel, new DeviceSession.PendingExchange(
-                REPORT_MSG_TYPE,
-                REPORT_ACK_MSG_TYPE,
-                String.valueOf(txnNo),
-                payload,
-                System.currentTimeMillis(),
-                0,
-                connectionGeneration
-        ));
-    }
-
-    private void writePendingExchange(Channel channel, DeviceSession.PendingExchange pendingExchange) {
-        session.setPendingExchange(pendingExchange);
-        channel.writeAndFlush(pendingExchange.payload()).addListener(future -> {
+        DeviceSession.PendingLogin pending = new DeviceSession.PendingLogin(
+                String.valueOf(txnNo), payload, System.currentTimeMillis(), 0
+        );
+        session.setPendingLogin(pending);
+        log.info("devId={} sending login 110 txnNo={}", session.devId(), txnNo);
+        channel.writeAndFlush(payload).addListener(future -> {
             if (!future.isSuccess()) {
-                log.warn("devId={} write failed msgType={} txnNo={} cause={}",
-                        session.devId(),
-                        pendingExchange.requestMsgType(),
-                        pendingExchange.txnNo(),
+                log.warn("devId={} login write failed: {}", session.devId(),
                         future.cause() != null ? future.cause().getMessage() : "unknown");
-                ReportScheduler.stop(session);
-                cancelAckRetryTask();
-                session.clearPendingExchange();
                 channel.close();
                 return;
             }
-            scheduleAckRetry(channel, pendingExchange);
+            log.debug("devId={} login 110 sent, scheduling retry in {}s", session.devId(), config.loginRetryIntervalSeconds());
+            scheduleLoginRetry(channel, pending);
         });
     }
 
-    private void scheduleAckRetry(Channel channel, DeviceSession.PendingExchange pendingExchange) {
-        cancelAckRetryTask();
-        session.setAckRetryTask(channel.eventLoop().schedule(() -> onAckRetry(channel, pendingExchange), config.ackRetryIntervalSeconds(), TimeUnit.SECONDS));
+    private void scheduleLoginRetry(Channel channel, DeviceSession.PendingLogin pending) {
+        cancelLoginRetryTask();
+        session.setLoginRetryTask(channel.eventLoop().schedule(
+                () -> onLoginRetry(channel, pending), config.loginRetryIntervalSeconds(), TimeUnit.SECONDS));
     }
 
-    private void onAckRetry(Channel channel, DeviceSession.PendingExchange scheduledPendingExchange) {
-        session.setAckRetryTask(null);
-        DeviceSession.PendingExchange currentPendingExchange = session.pendingExchange();
-        if (currentPendingExchange == null) {
+    private void onLoginRetry(Channel channel, DeviceSession.PendingLogin scheduled) {
+        session.setLoginRetryTask(null);
+        DeviceSession.PendingLogin current = session.pendingLogin();
+        if (current == null || !current.txnNo().equals(scheduled.txnNo())) {
+            log.debug("devId={} login retry skipped: pending cleared or txnNo changed", session.devId());
             return;
         }
-        if (!currentPendingExchange.txnNo().equals(scheduledPendingExchange.txnNo())
-                || currentPendingExchange.expectedAckMsgType() != scheduledPendingExchange.expectedAckMsgType()) {
+        if (!channel.isActive() || connectionGeneration != session.connectionGeneration()) {
+            log.debug("devId={} login retry skipped: channel inactive or generation mismatch", session.devId());
             return;
         }
-        if (!channel.isActive() || currentPendingExchange.connectionGeneration() != session.connectionGeneration()) {
-            return;
-        }
-        long elapsedMillis = System.currentTimeMillis() - currentPendingExchange.firstSentAtMillis();
-        if (elapsedMillis >= TimeUnit.SECONDS.toMillis(config.ackRetryWindowSeconds())) {
-            log.warn("devId={} ack retry window exceeded msgType={} txnNo={}, closing channel",
-                    session.devId(), currentPendingExchange.requestMsgType(), currentPendingExchange.txnNo());
-            ReportScheduler.stop(session);
+        long elapsedMillis = System.currentTimeMillis() - current.firstSentAtMillis();
+        if (elapsedMillis >= TimeUnit.SECONDS.toMillis(config.loginRetryWindowSeconds())) {
+            log.warn("devId={} login retry window exceeded, closing channel", session.devId());
             channel.close();
             return;
         }
-        DeviceSession.PendingExchange retryPendingExchange = currentPendingExchange.nextRetry();
-        session.setPendingExchange(retryPendingExchange);
-        log.warn("devId={} missing ack msgType={} txnNo={}, retry #{}",
-                session.devId(), retryPendingExchange.requestMsgType(), retryPendingExchange.txnNo(), retryPendingExchange.retryCount());
-        channel.writeAndFlush(retryPendingExchange.payload()).addListener(future -> {
+        DeviceSession.PendingLogin retry = current.nextRetry();
+        session.setPendingLogin(retry);
+        log.warn("devId={} missing login ack txnNo={}, retry #{}", session.devId(), retry.txnNo(), retry.retryCount());
+        channel.writeAndFlush(retry.payload()).addListener(future -> {
             if (!future.isSuccess()) {
-                log.warn("devId={} retry write failed msgType={} txnNo={} cause={}",
-                        session.devId(),
-                        retryPendingExchange.requestMsgType(),
-                        retryPendingExchange.txnNo(),
+                log.warn("devId={} login retry write failed: {}", session.devId(),
                         future.cause() != null ? future.cause().getMessage() : "unknown");
-                ReportScheduler.stop(session);
-                cancelAckRetryTask();
-                session.clearPendingExchange();
                 channel.close();
                 return;
             }
-            scheduleAckRetry(channel, retryPendingExchange);
+            scheduleLoginRetry(channel, retry);
+        });
+    }
+
+    private void startPeriodicReport(Channel channel) {
+        int interval = ThreadLocalRandom.current().nextInt(
+                config.minReportIntervalSeconds(), config.maxReportIntervalSeconds() + 1);
+        log.info("devId={} starting periodic 310 reports every {}s", session.devId(), interval);
+        ReportScheduler.start(session, channel.eventLoop(), interval, () -> {
+            if (!channel.isActive() || !session.loggedIn()) {
+                return;
+            }
+            long txnNo = System.currentTimeMillis();
+            String payload = PayloadBuilder.buildAttributePayload(session.devId(), txnNo);
+            channel.writeAndFlush(payload).addListener(future -> {
+                if (!future.isSuccess()) {
+                    log.warn("devId={} report write failed: {}", session.devId(),
+                            future.cause() != null ? future.cause().getMessage() : "unknown");
+                    channel.close();
+                }
+            });
         });
     }
 
     private void reconnect() {
         if (bootstrap != null) {
+            log.info("devId={} reconnecting...", session.devId());
             Bootstrap reconnectBootstrap = bootstrap.clone();
-            reconnectBootstrap.handler(new DeviceChannelInitializer(new DeviceMessageHandler(session, config, reconnectBootstrap), config.readerIdleSeconds()));
+            reconnectBootstrap.handler(new DeviceChannelInitializer(
+                    new DeviceMessageHandler(session, config, reconnectBootstrap), config.readerIdleSeconds()));
             reconnectBootstrap.connect(config.host(), config.port());
         }
     }
@@ -205,15 +188,15 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
     private void cleanupBeforeReconnect(Channel channel) {
         session.setLoggedIn(false);
         session.clearChannel(channel);
-        cancelAckRetryTask();
-        session.clearPendingExchange();
+        cancelLoginRetryTask();
+        session.clearPendingLogin();
         ReportScheduler.stop(session);
     }
 
-    private void cancelAckRetryTask() {
-        if (session.ackRetryTask() != null) {
-            session.ackRetryTask().cancel(false);
-            session.setAckRetryTask(null);
+    private void cancelLoginRetryTask() {
+        if (session.loginRetryTask() != null) {
+            session.loginRetryTask().cancel(false);
+            session.setLoginRetryTask(null);
         }
     }
 }

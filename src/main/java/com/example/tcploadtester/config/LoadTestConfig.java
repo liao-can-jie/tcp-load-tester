@@ -14,8 +14,8 @@ public record LoadTestConfig(
         int minReportIntervalSeconds,
         int maxReportIntervalSeconds,
         long reconnectDelayMillis,
-        int ackRetryIntervalSeconds,
-        int ackRetryWindowSeconds,
+        int loginRetryIntervalSeconds,
+        int loginRetryWindowSeconds,
         int readerIdleSeconds
 ) {
     public static LoadTestConfig load(String[] args) {
@@ -37,8 +37,8 @@ public record LoadTestConfig(
                 Integer.parseInt(overrides.getOrDefault("minReportIntervalSeconds", properties.getProperty("minReportIntervalSeconds"))),
                 Integer.parseInt(overrides.getOrDefault("maxReportIntervalSeconds", properties.getProperty("maxReportIntervalSeconds"))),
                 Long.parseLong(overrides.getOrDefault("reconnectDelayMillis", properties.getProperty("reconnectDelayMillis"))),
-                Integer.parseInt(overrides.getOrDefault("ackRetryIntervalSeconds", properties.getProperty("ackRetryIntervalSeconds"))),
-                Integer.parseInt(overrides.getOrDefault("ackRetryWindowSeconds", properties.getProperty("ackRetryWindowSeconds"))),
+                Integer.parseInt(overrides.getOrDefault("loginRetryIntervalSeconds", properties.getProperty("loginRetryIntervalSeconds"))),
+                Integer.parseInt(overrides.getOrDefault("loginRetryWindowSeconds", properties.getProperty("loginRetryWindowSeconds"))),
                 Integer.parseInt(overrides.getOrDefault("readerIdleSeconds", properties.getProperty("readerIdleSeconds")))
         );
         config.validate();
@@ -74,14 +74,14 @@ public record LoadTestConfig(
         if (reconnectDelayMillis < 0) {
             throw new IllegalArgumentException("reconnectDelayMillis must be >= 0");
         }
-        if (ackRetryIntervalSeconds <= 0) {
-            throw new IllegalArgumentException("ackRetryIntervalSeconds must be > 0");
+        if (loginRetryIntervalSeconds <= 0) {
+            throw new IllegalArgumentException("loginRetryIntervalSeconds must be > 0");
         }
-        if (ackRetryWindowSeconds < ackRetryIntervalSeconds) {
-            throw new IllegalArgumentException("ackRetryWindowSeconds must be >= ackRetryIntervalSeconds");
+        if (loginRetryWindowSeconds < loginRetryIntervalSeconds) {
+            throw new IllegalArgumentException("loginRetryWindowSeconds must be >= loginRetryIntervalSeconds");
         }
-        if (readerIdleSeconds <= ackRetryWindowSeconds) {
-            throw new IllegalArgumentException("readerIdleSeconds must be greater than ackRetryWindowSeconds");
+        if (readerIdleSeconds <= loginRetryWindowSeconds) {
+            throw new IllegalArgumentException("readerIdleSeconds must be greater than loginRetryWindowSeconds");
         }
     }
 }
