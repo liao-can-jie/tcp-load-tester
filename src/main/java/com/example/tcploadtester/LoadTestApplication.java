@@ -7,7 +7,9 @@ import com.example.tcploadtester.netty.ConnectionStats;
 import com.example.tcploadtester.netty.DeviceChannelInitializer;
 import com.example.tcploadtester.netty.DeviceMessageHandler;
 import com.example.tcploadtester.netty.LoadTestClientBootstrap;
+import com.example.tcploadtester.netty.ReconnectManager;
 import io.netty.bootstrap.Bootstrap;
+import io.netty.channel.EventLoop;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,7 +39,14 @@ public final class LoadTestApplication {
             Bootstrap bootstrap = bootstrapFactory.create();
             DeviceMessageHandler handler = new DeviceMessageHandler(session, config, bootstrap);
             bootstrap.handler(new DeviceChannelInitializer(handler, config.readerIdleSeconds()));
-            bootstrap.connect(config.host(), config.port());
+            bootstrap.connect(config.host(), config.port()).addListener(future -> {
+                if (!future.isSuccess()) {
+                    log.warn("devId={} connect failed: {}, scheduling reconnect", session.devId(),
+                            future.cause() != null ? future.cause().getMessage() : "unknown");
+                    EventLoop eventLoop = bootstrap.config().group().next();
+                    ReconnectManager.schedule(session, eventLoop, config.reconnectDelayMillis(), handler::reconnect);
+                }
+            });
             try {
                 Thread.sleep(5);
             } catch (InterruptedException e) {

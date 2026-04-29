@@ -177,13 +177,20 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
         });
     }
 
-    private void reconnect() {
+    public void reconnect() {
         if (bootstrap != null) {
             log.info("devId={} reconnecting...", session.devId());
             Bootstrap reconnectBootstrap = bootstrap.clone();
-            reconnectBootstrap.handler(new DeviceChannelInitializer(
-                    new DeviceMessageHandler(session, config, reconnectBootstrap), config.readerIdleSeconds()));
-            reconnectBootstrap.connect(config.host(), config.port());
+            DeviceMessageHandler newHandler = new DeviceMessageHandler(session, config, reconnectBootstrap);
+            reconnectBootstrap.handler(new DeviceChannelInitializer(newHandler, config.readerIdleSeconds()));
+            reconnectBootstrap.connect(config.host(), config.port()).addListener(future -> {
+                if (!future.isSuccess()) {
+                    log.warn("devId={} reconnect failed: {}, scheduling retry", session.devId(),
+                            future.cause() != null ? future.cause().getMessage() : "unknown");
+                    ReconnectManager.schedule(session, reconnectBootstrap.config().group().next(),
+                            config.reconnectDelayMillis(), newHandler::reconnect);
+                }
+            });
         }
     }
 
