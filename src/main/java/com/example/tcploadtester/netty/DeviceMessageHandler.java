@@ -43,6 +43,7 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
         cancelLoginRetryTask();
         session.clearPendingLogin();
         ReportScheduler.stop(session);
+        ConnectionStats.onConnected();
         log.info("devId={} channel active gen={}, sending login 110", session.devId(), connectionGeneration);
         sendLogin(ctx.channel());
     }
@@ -68,6 +69,7 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
             cancelLoginRetryTask();
             session.clearPendingLogin();
             session.setLoggedIn(true);
+            ConnectionStats.onLoginSuccess();
             log.info("devId={} login success txnNo={}", session.devId(), pending.txnNo());
             startPeriodicReport(ctx.channel());
         }

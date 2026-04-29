@@ -3,6 +3,7 @@ package com.example.tcploadtester;
 import com.example.tcploadtester.config.LoadTestConfig;
 import com.example.tcploadtester.device.DeviceIdentityAllocator;
 import com.example.tcploadtester.device.DeviceSession;
+import com.example.tcploadtester.netty.ConnectionStats;
 import com.example.tcploadtester.netty.DeviceChannelInitializer;
 import com.example.tcploadtester.netty.DeviceMessageHandler;
 import com.example.tcploadtester.netty.LoadTestClientBootstrap;
@@ -12,6 +13,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public final class LoadTestApplication {
 
@@ -35,14 +38,19 @@ public final class LoadTestApplication {
             DeviceMessageHandler handler = new DeviceMessageHandler(session, config, bootstrap);
             bootstrap.handler(new DeviceChannelInitializer(handler, config.readerIdleSeconds()));
             bootstrap.connect(config.host(), config.port());
-            //睡眠100ms，避免连接过快导致服务器拒绝
             try {
-                Thread.sleep(100);
+                Thread.sleep(5);
             } catch (InterruptedException e) {
                 log.error("sleep interrupted", e);
             }
         }
 
         log.info("started {} device sessions", sessions.size());
+
+        Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "stats-reporter");
+            t.setDaemon(true);
+            return t;
+        }).scheduleAtFixedRate(() -> log.info(ConnectionStats.snapshot()), 10, 10, TimeUnit.SECONDS);
     }
 }
