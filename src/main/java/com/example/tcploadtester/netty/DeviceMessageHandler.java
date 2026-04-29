@@ -50,6 +50,9 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, String msg) {
+        if (session.loggedIn()) {
+            return;
+        }
         log.debug("devId={} received: {}", session.devId(), msg);
         inboundBuffer.append(msg);
         List<AckMessageMatcher.AckMessage> ackMessages = AckMessageMatcher.extract(inboundBuffer.toString());
@@ -57,21 +60,16 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
             inboundBuffer.setLength(0);
         }
         for (AckMessageMatcher.AckMessage ackMessage : ackMessages) {
-            DeviceSession.PendingLogin pending = session.pendingLogin();
-            if (pending == null) {
-                log.debug("devId={} received ack msgType={} txnNo={} but no pending login", session.devId(), ackMessage.msgType(), ackMessage.txnNo());
-                continue;
-            }
-            if (ackMessage.msgType() != 111 || !AckMessageMatcher.matches(ackMessage, 111, pending.txnNo())) {
-                log.debug("devId={} received ack msgType={} txnNo={} expected msgType=111 txnNo={}", session.devId(), ackMessage.msgType(), ackMessage.txnNo(), pending.txnNo());
+            if (ackMessage.msgType() != 111) {
                 continue;
             }
             cancelLoginRetryTask();
             session.clearPendingLogin();
             session.setLoggedIn(true);
             ConnectionStats.onLoginSuccess();
-            log.debug("devId={} login success txnNo={}", session.devId(), pending.txnNo());
+            log.debug("devId={} login success", session.devId());
             startPeriodicReport(ctx.channel());
+            return;
         }
         if (inboundBuffer.length() > 8192) {
             log.warn("devId={} inbound buffer overflow ({} chars), clearing", session.devId(), inboundBuffer.length());
