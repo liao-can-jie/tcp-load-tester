@@ -44,7 +44,7 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
         session.clearPendingLogin();
         ReportScheduler.stop(session);
         ConnectionStats.onConnected();
-        log.info("devId={} channel active gen={}, sending login 110", session.devId(), connectionGeneration);
+        log.debug("devId={} channel active gen={}, sending login 110", session.devId(), connectionGeneration);
         sendLogin(ctx.channel());
     }
 
@@ -70,7 +70,7 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
             session.clearPendingLogin();
             session.setLoggedIn(true);
             ConnectionStats.onLoginSuccess();
-            log.info("devId={} login success txnNo={}", session.devId(), pending.txnNo());
+            log.debug("devId={} login success txnNo={}", session.devId(), pending.txnNo());
             startPeriodicReport(ctx.channel());
         }
         if (inboundBuffer.length() > 8192) {
@@ -89,7 +89,7 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
-        log.info("devId={} channel inactive (server closed or reset), cleaning up and scheduling reconnect in {}ms", session.devId(), config.reconnectDelayMillis());
+        log.debug("devId={} channel inactive, scheduling reconnect in {}ms", session.devId(), config.reconnectDelayMillis());
         cleanupBeforeReconnect(ctx.channel());
         ReconnectManager.schedule(session, ctx.channel().eventLoop(), config.reconnectDelayMillis(), this::reconnect);
     }
@@ -107,7 +107,7 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
                 String.valueOf(txnNo), payload, System.currentTimeMillis(), 0
         );
         session.setPendingLogin(pending);
-        log.info("devId={} sending login 110 txnNo={}", session.devId(), txnNo);
+        log.debug("devId={} sending login 110 txnNo={}", session.devId(), txnNo);
         channel.writeAndFlush(payload).addListener(future -> {
             if (!future.isSuccess()) {
                 log.warn("devId={} login write failed, closing channel: {}", session.devId(),
@@ -160,7 +160,7 @@ public final class DeviceMessageHandler extends SimpleChannelInboundHandler<Stri
     private void startPeriodicReport(Channel channel) {
         int interval = ThreadLocalRandom.current().nextInt(
                 config.minReportIntervalSeconds(), config.maxReportIntervalSeconds() + 1);
-        log.info("devId={} starting periodic 310 reports every {}s", session.devId(), interval);
+        log.debug("devId={} starting periodic 310 reports every {}s", session.devId(), interval);
         ReportScheduler.start(session, channel.eventLoop(), interval, () -> {
             if (!channel.isActive() || !session.loggedIn()) {
                 return;
