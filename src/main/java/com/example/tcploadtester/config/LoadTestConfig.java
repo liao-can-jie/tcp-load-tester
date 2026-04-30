@@ -1,7 +1,10 @@
 package com.example.tcploadtester.config;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -19,17 +22,16 @@ public record LoadTestConfig(
         int readerIdleSeconds
 ) {
     public static LoadTestConfig load(String[] args) {
+        Map<String, String> overrides = parseArgs(args);
+        String configPath = overrides.get("config");
+
         Properties properties = new Properties();
-        try (InputStream inputStream = LoadTestConfig.class.getClassLoader().getResourceAsStream("application.properties")) {
-            if (inputStream == null) {
-                throw new IllegalStateException("application.properties not found");
-            }
+        try (InputStream inputStream = resolveConfigStream(configPath)) {
             properties.load(inputStream);
         } catch (IOException e) {
             throw new IllegalStateException("Failed to load application.properties", e);
         }
 
-        Map<String, String> overrides = parseArgs(args);
         LoadTestConfig config = new LoadTestConfig(
                 overrides.getOrDefault("host", properties.getProperty("host")),
                 Integer.parseInt(overrides.getOrDefault("port", properties.getProperty("port"))),
@@ -43,6 +45,50 @@ public record LoadTestConfig(
         );
         config.validate();
         return config;
+    }
+
+    private static InputStream resolveConfigStream(String configPath) throws IOException {
+        if (configPath != null) {
+            File f = new File(configPath);
+            if (!f.isFile()) {
+                throw new IOException("Config file not found: " + configPath);
+            }
+            return new FileInputStream(f);
+        }
+
+        // Try external config in JAR directory or config/ subdirectory
+        Path jarDir = getJarDir();
+        if (jarDir != null) {
+            File inConfigDir = jarDir.resolve("config/application.properties").toFile();
+            if (inConfigDir.isFile()) {
+                return new FileInputStream(inConfigDir);
+            }
+            File inJarDir = jarDir.resolve("application.properties").toFile();
+            if (inJarDir.isFile()) {
+                return new FileInputStream(inJarDir);
+            }
+        }
+
+        // Fallback to classpath
+        InputStream cpStream = LoadTestConfig.class.getClassLoader().getResourceAsStream("application.properties");
+        if (cpStream != null) {
+            return cpStream;
+        }
+        throw new IOException("application.properties not found (tried external and classpath)");
+    }
+
+    private static Path getJarDir() {
+        try {
+            var codeSource = LoadTestConfig.class.getProtectionDomain().getCodeSource();
+            if (codeSource != null && codeSource.getLocation() != null) {
+                File jarFile = new File(codeSource.getLocation().toURI());
+                if (jarFile.isFile()) {
+                    return jarFile.getParentFile().toPath();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     private static Map<String, String> parseArgs(String[] args) {
