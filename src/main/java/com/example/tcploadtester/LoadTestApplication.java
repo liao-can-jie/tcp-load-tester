@@ -30,19 +30,8 @@ public final class LoadTestApplication {
         LoadTestConfig config = LoadTestConfig.load(args);
         LoadTestClientBootstrap bootstrapFactory = new LoadTestClientBootstrap();
         DeviceIdentityAllocator allocator = new DeviceIdentityAllocator(
-                new RedisDeviceCounter(config.redisHost(), config.redisPort(), config.redisCounterKey())
+                new RedisDeviceCounter(config.redisHost(), config.redisPort(), config.redisPassword(), config.redisCounterKey())
         );
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            try {
-                allocator.reset();
-            } finally {
-                try {
-                    allocator.close();
-                } finally {
-                    bootstrapFactory.shutdown();
-                }
-            }
-        }));
 
         List<DeviceSession> sessions = new ArrayList<>();
         for (int i = 1; i <= config.deviceCount(); i++) {

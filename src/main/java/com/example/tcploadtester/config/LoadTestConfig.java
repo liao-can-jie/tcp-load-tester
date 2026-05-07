@@ -15,6 +15,7 @@ public record LoadTestConfig(
         int port,
         String redisHost,
         int redisPort,
+        String redisPassword,
         String redisCounterKey,
         int deviceCount,
         int minReportIntervalSeconds,
@@ -40,6 +41,7 @@ public record LoadTestConfig(
                 Integer.parseInt(overrides.getOrDefault("port", properties.getProperty("port"))),
                 overrides.getOrDefault("redisHost", properties.getProperty("redisHost")),
                 Integer.parseInt(overrides.getOrDefault("redisPort", properties.getProperty("redisPort"))),
+                overrides.getOrDefault("redisPassword", properties.getProperty("redisPassword", "")),
                 overrides.getOrDefault("redisCounterKey", properties.getProperty("redisCounterKey")),
                 Integer.parseInt(overrides.getOrDefault("deviceCount", properties.getProperty("deviceCount"))),
                 Integer.parseInt(overrides.getOrDefault("minReportIntervalSeconds", properties.getProperty("minReportIntervalSeconds"))),
@@ -110,6 +112,7 @@ public record LoadTestConfig(
     public void validate() {
         Objects.requireNonNull(host, "host must not be null");
         Objects.requireNonNull(redisHost, "redisHost must not be null");
+        Objects.requireNonNull(redisPassword, "redisPassword must not be null");
         Objects.requireNonNull(redisCounterKey, "redisCounterKey must not be null");
         if (host.isBlank()) {
             throw new IllegalArgumentException("host must not be blank");

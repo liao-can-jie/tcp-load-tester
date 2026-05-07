@@ -13,11 +13,13 @@ public final class RedisDeviceCounter implements DeviceIdentityAllocator.DeviceC
 
     private final String host;
     private final int port;
+    private final String password;
     private final String counterKey;
 
-    public RedisDeviceCounter(String host, int port, String counterKey) {
+    public RedisDeviceCounter(String host, int port, String password, String counterKey) {
         this.host = Objects.requireNonNull(host, "host must not be null");
         this.port = port;
+        this.password = Objects.requireNonNull(password, "password must not be null");
         this.counterKey = Objects.requireNonNull(counterKey, "counterKey must not be null");
     }
 
@@ -35,6 +37,7 @@ public final class RedisDeviceCounter implements DeviceIdentityAllocator.DeviceC
         try (Socket socket = new Socket(host, port);
              OutputStream output = new BufferedOutputStream(socket.getOutputStream());
              InputStream input = new BufferedInputStream(socket.getInputStream())) {
+            authenticateIfConfigured(output, input);
             writeCommand(output, command, key);
             return readIntegerReply(input);
         } catch (IOException e) {
@@ -46,6 +49,7 @@ public final class RedisDeviceCounter implements DeviceIdentityAllocator.DeviceC
         try (Socket socket = new Socket(host, port);
              OutputStream output = new BufferedOutputStream(socket.getOutputStream());
              InputStream input = new BufferedInputStream(socket.getInputStream())) {
+            authenticateIfConfigured(output, input);
             writeCommand(output, command, key);
             skipReply(input);
         } catch (IOException e) {
@@ -53,10 +57,18 @@ public final class RedisDeviceCounter implements DeviceIdentityAllocator.DeviceC
         }
     }
 
-    private void writeCommand(OutputStream output, String command, String key) throws IOException {
+    private void authenticateIfConfigured(OutputStream output, InputStream input) throws IOException {
+        if (password.isBlank()) {
+            return;
+        }
+        writeCommand(output, "AUTH", password);
+        readSimpleStringReply(input);
+    }
+
+    private void writeCommand(OutputStream output, String command, String arg) throws IOException {
         writeBulkArrayHeader(output, 2);
         writeBulkString(output, command);
-        writeBulkString(output, key);
+        writeBulkString(output, arg);
         output.flush();
     }
 
@@ -69,6 +81,18 @@ public final class RedisDeviceCounter implements DeviceIdentityAllocator.DeviceC
         output.write(("$" + bytes.length + "\r\n").getBytes(StandardCharsets.UTF_8));
         output.write(bytes);
         output.write("\r\n".getBytes(StandardCharsets.UTF_8));
+    }
+
+    private void readSimpleStringReply(InputStream input) throws IOException {
+        int prefix = input.read();
+        if (prefix == '+') {
+            readLine(input);
+            return;
+        }
+        if (prefix == '-') {
+            throw new IllegalStateException("Redis error: " + readLine(input));
+        }
+        throw new IllegalStateException("Unexpected Redis reply: " + (char) prefix);
     }
 
     private long readIntegerReply(InputStream input) throws IOException {

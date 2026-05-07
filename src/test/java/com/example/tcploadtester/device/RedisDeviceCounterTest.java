@@ -10,6 +10,8 @@ import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -23,31 +25,45 @@ class RedisDeviceCounterTest {
     @Test
     void nextDeviceIndexSendsIncrCommandAndParsesIntegerReply() throws Exception {
         try (FakeRedisServer server = new FakeRedisServer()) {
-            Future<CapturedCommand> commandFuture = server.handleOnce(":41\r\n");
-            RedisDeviceCounter counter = new RedisDeviceCounter("127.0.0.1", server.port(), "device-counter");
+            Future<List<CapturedCommand>> commandFuture = server.handleOnce(List.of(":41\r\n"));
+            RedisDeviceCounter counter = new RedisDeviceCounter("127.0.0.1", server.port(), "", "device-counter");
 
             assertEquals(41, counter.nextDeviceIndex());
-            assertEquals(new CapturedCommand("INCR", "device-counter"), commandFuture.get(3, TimeUnit.SECONDS));
+            assertEquals(List.of(new CapturedCommand("INCR", "device-counter")), commandFuture.get(3, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void nextDeviceIndexAuthenticatesBeforeIncrWhenPasswordConfigured() throws Exception {
+        try (FakeRedisServer server = new FakeRedisServer()) {
+            Future<List<CapturedCommand>> commandFuture = server.handleOnce(List.of("+OK\r\n", ":42\r\n"));
+            RedisDeviceCounter counter = new RedisDeviceCounter("127.0.0.1", server.port(), "secret", "device-counter");
+
+            assertEquals(42, counter.nextDeviceIndex());
+            assertEquals(List.of(
+                    new CapturedCommand("AUTH", "secret"),
+                    new CapturedCommand("INCR", "device-counter")
+            ), commandFuture.get(3, TimeUnit.SECONDS));
         }
     }
 
     @Test
     void resetSendsDelCommand() throws Exception {
         try (FakeRedisServer server = new FakeRedisServer()) {
-            Future<CapturedCommand> commandFuture = server.handleOnce(":1\r\n");
-            RedisDeviceCounter counter = new RedisDeviceCounter("127.0.0.1", server.port(), "device-counter");
+            Future<List<CapturedCommand>> commandFuture = server.handleOnce(List.of(":1\r\n"));
+            RedisDeviceCounter counter = new RedisDeviceCounter("127.0.0.1", server.port(), "", "device-counter");
 
             counter.reset();
 
-            assertEquals(new CapturedCommand("DEL", "device-counter"), commandFuture.get(3, TimeUnit.SECONDS));
+            assertEquals(List.of(new CapturedCommand("DEL", "device-counter")), commandFuture.get(3, TimeUnit.SECONDS));
         }
     }
 
     @Test
     void nextDeviceIndexPropagatesRedisErrorReply() throws Exception {
         try (FakeRedisServer server = new FakeRedisServer()) {
-            server.handleOnce("-ERR counter locked\r\n");
-            RedisDeviceCounter counter = new RedisDeviceCounter("127.0.0.1", server.port(), "device-counter");
+            server.handleOnce(List.of("-ERR counter locked\r\n"));
+            RedisDeviceCounter counter = new RedisDeviceCounter("127.0.0.1", server.port(), "", "device-counter");
 
             IllegalStateException error = assertThrows(IllegalStateException.class, counter::nextDeviceIndex);
 
@@ -55,7 +71,7 @@ class RedisDeviceCounterTest {
         }
     }
 
-    private record CapturedCommand(String command, String key) {
+    private record CapturedCommand(String command, String arg) {
     }
 
     private static final class FakeRedisServer implements AutoCloseable {
@@ -72,15 +88,18 @@ class RedisDeviceCounterTest {
             return serverSocket.getLocalPort();
         }
 
-        private Future<CapturedCommand> handleOnce(String reply) {
+        private Future<List<CapturedCommand>> handleOnce(List<String> replies) {
             return executor.submit(() -> {
                 try (Socket socket = serverSocket.accept();
                      InputStream input = new BufferedInputStream(socket.getInputStream());
                      OutputStream output = new BufferedOutputStream(socket.getOutputStream())) {
-                    CapturedCommand command = readCommand(input);
-                    output.write(reply.getBytes(StandardCharsets.UTF_8));
-                    output.flush();
-                    return command;
+                    List<CapturedCommand> commands = new ArrayList<>();
+                    for (String reply : replies) {
+                        commands.add(readCommand(input));
+                        output.write(reply.getBytes(StandardCharsets.UTF_8));
+                        output.flush();
+                    }
+                    return commands;
                 }
             });
         }
