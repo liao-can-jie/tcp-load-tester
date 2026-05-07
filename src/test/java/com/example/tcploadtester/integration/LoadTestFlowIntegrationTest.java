@@ -1,7 +1,6 @@
 package com.example.tcploadtester.integration;
 
 import com.example.tcploadtester.config.LoadTestConfig;
-import com.example.tcploadtester.device.DeviceIdentityAllocator;
 import com.example.tcploadtester.device.DeviceSession;
 import com.example.tcploadtester.netty.DeviceChannelInitializer;
 import com.example.tcploadtester.netty.DeviceMessageHandler;
@@ -218,8 +217,7 @@ class LoadTestFlowIntegrationTest {
     }
 
     private void startClient(LoadTestConfig config) {
-        DeviceIdentityAllocator.DeviceIdentity identity = DeviceIdentityAllocator.allocate(1);
-        DeviceSession session = new DeviceSession(1, identity.devId(), identity.imsi());
+        DeviceSession session = new DeviceSession(1, "BT107204012MXYD000001", "860937000000001");
         Bootstrap bootstrap = new Bootstrap()
                 .group(clientGroup)
                 .channel(NioSocketChannel.class)
@@ -230,7 +228,7 @@ class LoadTestFlowIntegrationTest {
     }
 
     private LoadTestConfig testConfig() {
-        return new LoadTestConfig("127.0.0.1", 19090, 1, 1, 1, 100, 1, 3, 5);
+        return new LoadTestConfig("127.0.0.1", 19090, "127.0.0.1", 6379, "test-counter", 1, 1, 1, 100, 1, 3, 5);
     }
 
     private String capturedLogs() {

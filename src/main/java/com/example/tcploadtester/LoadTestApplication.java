@@ -3,6 +3,7 @@ package com.example.tcploadtester;
 import com.example.tcploadtester.config.LoadTestConfig;
 import com.example.tcploadtester.device.DeviceIdentityAllocator;
 import com.example.tcploadtester.device.DeviceSession;
+import com.example.tcploadtester.device.RedisDeviceCounter;
 import com.example.tcploadtester.netty.ConnectionStats;
 import com.example.tcploadtester.netty.DeviceChannelInitializer;
 import com.example.tcploadtester.netty.DeviceMessageHandler;
@@ -28,11 +29,24 @@ public final class LoadTestApplication {
     public static void main(String[] args) {
         LoadTestConfig config = LoadTestConfig.load(args);
         LoadTestClientBootstrap bootstrapFactory = new LoadTestClientBootstrap();
-        Runtime.getRuntime().addShutdownHook(new Thread(bootstrapFactory::shutdown));
+        DeviceIdentityAllocator allocator = new DeviceIdentityAllocator(
+                new RedisDeviceCounter(config.redisHost(), config.redisPort(), config.redisCounterKey())
+        );
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                allocator.reset();
+            } finally {
+                try {
+                    allocator.close();
+                } finally {
+                    bootstrapFactory.shutdown();
+                }
+            }
+        }));
 
         List<DeviceSession> sessions = new ArrayList<>();
         for (int i = 1; i <= config.deviceCount(); i++) {
-            DeviceIdentityAllocator.DeviceIdentity identity = DeviceIdentityAllocator.allocate(i);
+            DeviceIdentityAllocator.DeviceIdentity identity = allocator.allocate();
             DeviceSession session = new DeviceSession(i, identity.devId(), identity.imsi());
             sessions.add(session);
 
@@ -51,6 +65,7 @@ public final class LoadTestApplication {
                 Thread.sleep(5);
             } catch (InterruptedException e) {
                 log.error("sleep interrupted", e);
+                Thread.currentThread().interrupt();
             }
         }
 
