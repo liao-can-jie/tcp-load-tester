@@ -12,7 +12,7 @@ public final class DeviceIdentityAllocator {
 
     public DeviceIdentity allocate() {
         long deviceIndex = deviceCounter.nextDeviceIndex();
-        validateDeviceIndex(deviceIndex);
+//        validateDeviceIndex(deviceIndex);
         String devId = String.format("BT107204012MXYD%06d", deviceIndex);
         String imsi = "860937" + String.format("%09d", deviceIndex);
         return new DeviceIdentity(devId, imsi);
