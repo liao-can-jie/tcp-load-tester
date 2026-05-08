@@ -3,7 +3,6 @@ package com.example.tcploadtester;
 import com.example.tcploadtester.config.LoadTestConfig;
 import com.example.tcploadtester.device.DeviceIdentityAllocator;
 import com.example.tcploadtester.device.DeviceSession;
-import com.example.tcploadtester.device.RedisDeviceCounter;
 import com.example.tcploadtester.netty.ConnectionStats;
 import com.example.tcploadtester.netty.DeviceChannelInitializer;
 import com.example.tcploadtester.netty.DeviceMessageHandler;
@@ -14,6 +13,11 @@ import io.netty.channel.EventLoop;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executors;
@@ -22,6 +26,7 @@ import java.util.concurrent.TimeUnit;
 public final class LoadTestApplication {
 
     private static final Logger log = LoggerFactory.getLogger(LoadTestApplication.class);
+    private static final URI PUBLIC_IP_ENDPOINT = URI.create("https://checkip.amazonaws.com");
 
     private LoadTestApplication() {
     }
@@ -29,13 +34,11 @@ public final class LoadTestApplication {
     public static void main(String[] args) {
         LoadTestConfig config = LoadTestConfig.load(args);
         LoadTestClientBootstrap bootstrapFactory = new LoadTestClientBootstrap();
-        DeviceIdentityAllocator allocator = new DeviceIdentityAllocator(
-                new RedisDeviceCounter(config.redisHost(), config.redisPort(), config.redisPassword(), config.redisCounterKey())
-        );
+        DeviceIdentityAllocator allocator = new DeviceIdentityAllocator(resolvePublicIp());
 
         List<DeviceSession> sessions = new ArrayList<>();
         for (int i = 1; i <= config.deviceCount(); i++) {
-            DeviceIdentityAllocator.DeviceIdentity identity = allocator.allocate();
+            DeviceIdentityAllocator.DeviceIdentity identity = allocator.allocate(i);
             DeviceSession session = new DeviceSession(i, identity.devId(), identity.imsi());
             sessions.add(session);
 
@@ -65,5 +68,25 @@ public final class LoadTestApplication {
             t.setDaemon(true);
             return t;
         }).scheduleAtFixedRate(() -> log.info(ConnectionStats.snapshot()), 10, 10, TimeUnit.SECONDS);
+    }
+
+    private static String resolvePublicIp() {
+        try {
+            HttpRequest request = HttpRequest.newBuilder(PUBLIC_IP_ENDPOINT)
+                    .timeout(Duration.ofSeconds(5))
+                    .GET()
+                    .build();
+            HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                throw new IllegalStateException("Failed to resolve public IP: HTTP " + response.statusCode());
+            }
+            String publicIp = response.body().trim();
+            if (!publicIp.matches("\\d{1,3}(\\.\\d{1,3}){3}")) {
+                throw new IllegalStateException("Failed to resolve public IP: " + publicIp);
+            }
+            return publicIp;
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to resolve public IP", e);
+        }
     }
 }

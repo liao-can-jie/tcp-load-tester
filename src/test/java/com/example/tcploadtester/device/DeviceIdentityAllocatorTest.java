@@ -8,40 +8,29 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class DeviceIdentityAllocatorTest {
 
     @Test
-    void allocateFirstDevice() {
-        DeviceIdentityAllocator allocator = new DeviceIdentityAllocator(new StubDeviceCounter(1));
+    void allocateFirstDeviceAppendsPublicIpDigits() {
+        DeviceIdentityAllocator allocator = new DeviceIdentityAllocator("139.199.15.22");
 
-        DeviceIdentityAllocator.DeviceIdentity identity = allocator.allocate();
+        DeviceIdentityAllocator.DeviceIdentity identity = allocator.allocate(1);
 
-        assertEquals("BT107204012MXYD000001", identity.devId());
+        assertEquals("BT107204012MXYD1391991522000001", identity.devId());
         assertEquals("860937000000001", identity.imsi());
     }
 
     @Test
-    void allocateUpperBoundDevice() {
-        DeviceIdentityAllocator allocator = new DeviceIdentityAllocator(new StubDeviceCounter(100000));
+    void allocateUpperBoundDeviceKeepsZeroPaddedIndex() {
+        DeviceIdentityAllocator allocator = new DeviceIdentityAllocator("139.199.15.22");
 
-        DeviceIdentityAllocator.DeviceIdentity identity = allocator.allocate();
+        DeviceIdentityAllocator.DeviceIdentity identity = allocator.allocate(100000);
 
-        assertEquals("BT107204012MXYD100000", identity.devId());
+        assertEquals("BT107204012MXYD1391991522100000", identity.devId());
         assertEquals("860937000100000", identity.imsi());
     }
 
     @Test
     void rejectDeviceAboveUpperBound() {
-        DeviceIdentityAllocator allocator = new DeviceIdentityAllocator(new StubDeviceCounter(100001));
+        DeviceIdentityAllocator allocator = new DeviceIdentityAllocator("139.199.15.22");
 
-        assertThrows(IllegalArgumentException.class, allocator::allocate);
-    }
-
-    private record StubDeviceCounter(long deviceIndex) implements DeviceIdentityAllocator.DeviceCounter {
-        @Override
-        public long nextDeviceIndex() {
-            return deviceIndex;
-        }
-
-        @Override
-        public void reset() {
-        }
+        assertThrows(IllegalArgumentException.class, () -> allocator.allocate(100001));
     }
 }

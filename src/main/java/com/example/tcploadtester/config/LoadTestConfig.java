@@ -13,10 +13,6 @@ import java.util.Properties;
 public record LoadTestConfig(
         String host,
         int port,
-        String redisHost,
-        int redisPort,
-        String redisPassword,
-        String redisCounterKey,
         int deviceCount,
         int minReportIntervalSeconds,
         int maxReportIntervalSeconds,
@@ -39,10 +35,6 @@ public record LoadTestConfig(
         LoadTestConfig config = new LoadTestConfig(
                 overrides.getOrDefault("host", properties.getProperty("host")),
                 Integer.parseInt(overrides.getOrDefault("port", properties.getProperty("port"))),
-                overrides.getOrDefault("redisHost", properties.getProperty("redisHost")),
-                Integer.parseInt(overrides.getOrDefault("redisPort", properties.getProperty("redisPort"))),
-                overrides.getOrDefault("redisPassword", properties.getProperty("redisPassword", "")),
-                overrides.getOrDefault("redisCounterKey", properties.getProperty("redisCounterKey")),
                 Integer.parseInt(overrides.getOrDefault("deviceCount", properties.getProperty("deviceCount"))),
                 Integer.parseInt(overrides.getOrDefault("minReportIntervalSeconds", properties.getProperty("minReportIntervalSeconds"))),
                 Integer.parseInt(overrides.getOrDefault("maxReportIntervalSeconds", properties.getProperty("maxReportIntervalSeconds"))),
@@ -111,23 +103,11 @@ public record LoadTestConfig(
 
     public void validate() {
         Objects.requireNonNull(host, "host must not be null");
-        Objects.requireNonNull(redisHost, "redisHost must not be null");
-        Objects.requireNonNull(redisPassword, "redisPassword must not be null");
-        Objects.requireNonNull(redisCounterKey, "redisCounterKey must not be null");
         if (host.isBlank()) {
             throw new IllegalArgumentException("host must not be blank");
         }
         if (port <= 0 || port > 65535) {
             throw new IllegalArgumentException("port must be between 1 and 65535");
-        }
-        if (redisHost.isBlank()) {
-            throw new IllegalArgumentException("redisHost must not be blank");
-        }
-        if (redisPort <= 0 || redisPort > 65535) {
-            throw new IllegalArgumentException("redisPort must be between 1 and 65535");
-        }
-        if (redisCounterKey.isBlank()) {
-            throw new IllegalArgumentException("redisCounterKey must not be blank");
         }
         if (deviceCount <= 0 || deviceCount > 100000) {
             throw new IllegalArgumentException("deviceCount must be between 1 and 100000");
