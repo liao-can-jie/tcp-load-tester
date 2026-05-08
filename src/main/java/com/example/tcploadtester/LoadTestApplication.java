@@ -26,7 +26,7 @@ import java.util.concurrent.TimeUnit;
 public final class LoadTestApplication {
 
     private static final Logger log = LoggerFactory.getLogger(LoadTestApplication.class);
-    private static final URI PUBLIC_IP_ENDPOINT = URI.create("https://checkip.amazonaws.com");
+    private static final URI TENCENT_PUBLIC_IP_ENDPOINT = URI.create("http://metadata.tencentyun.com/latest/meta-data/public-ipv4");
 
     private LoadTestApplication() {
     }
@@ -72,7 +72,7 @@ public final class LoadTestApplication {
 
     private static String resolvePublicIp() {
         try {
-            HttpRequest request = HttpRequest.newBuilder(PUBLIC_IP_ENDPOINT)
+            HttpRequest request = HttpRequest.newBuilder(TENCENT_PUBLIC_IP_ENDPOINT)
                     .timeout(Duration.ofSeconds(5))
                     .GET()
                     .build();
@@ -86,7 +86,7 @@ public final class LoadTestApplication {
             }
             return publicIp;
         } catch (Exception e) {
-            throw new IllegalStateException("Failed to resolve public IP", e);
+            throw new IllegalStateException("Failed to resolve public IP from Tencent metadata", e);
         }
     }
 }
