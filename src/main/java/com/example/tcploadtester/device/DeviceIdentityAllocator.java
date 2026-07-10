@@ -19,7 +19,8 @@ public final class DeviceIdentityAllocator {
 
     public DeviceIdentity allocate(int deviceIndex) {
         validateDeviceIndex(deviceIndex);
-        String devId = "BT107204012MXYD" + publicIpDigits + String.format("%06d", deviceIndex);
+//        String devId = "BT107204012MXYD" + publicIpDigits + String.format("%06d", deviceIndex);
+        String devId = "BT106005012MXYD260122737";
         String imsi = "860937" + String.format("%09d", deviceIndex);
         return new DeviceIdentity(devId, imsi);
     }

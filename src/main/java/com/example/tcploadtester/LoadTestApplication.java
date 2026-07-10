@@ -34,7 +34,9 @@ public final class LoadTestApplication {
     public static void main(String[] args) {
         LoadTestConfig config = LoadTestConfig.load(args);
         LoadTestClientBootstrap bootstrapFactory = new LoadTestClientBootstrap();
-        DeviceIdentityAllocator allocator = new DeviceIdentityAllocator(resolvePublicIp());
+//        DeviceIdentityAllocator allocator = new DeviceIdentityAllocator(resolvePublicIp());
+        DeviceIdentityAllocator allocator = new DeviceIdentityAllocator("127.0.0.1");
+
 
         List<DeviceSession> sessions = new ArrayList<>();
         for (int i = 1; i <= config.deviceCount(); i++) {
