@@ -10,6 +10,6 @@ public final class PayloadBuilder {
     }
 
     public static String buildAttributePayload(String devId, long txnNo) {
-        return "{\"msgType\":310,\"attrList\":[{\"id\":\"01101001\",\"value\":\"5\"},{\"id\":\"01113001\",\"value\":\"29\"},{\"id\":\"01102001\",\"value\":\"118.086998\"},{\"id\":\"01103001\",\"value\":\"24.498304\"},{\"id\":\"01106001\",\"value\":\"100\"},{\"id\":\"01109001\",\"value\":\"0\"},{\"id\":\"01110001\",\"value\":\"853\"},{\"id\":\"01108001\",\"value\":\"2\"}],\"devId\":\"" + devId + "\",\"txnNo\":\"" + txnNo + "\"}";
+        return "{\"msgType\":310,\"attrList\":[{\"id\":\"01101001\",\"value\":\"5\"},{\"id\":\"01113001\",\"value\":\"3\"},{\"id\":\"01102001\",\"value\":\"118.086998\"},{\"id\":\"01103001\",\"value\":\"24.498304\"},{\"id\":\"01106001\",\"value\":\"100\"},{\"id\":\"01109001\",\"value\":\"0\"},{\"id\":\"01110001\",\"value\":\"853\"},{\"id\":\"01108001\",\"value\":\"2\"}],\"devId\":\"" + devId + "\",\"txnNo\":\"" + txnNo + "\"}";
     }
 }
